@@ -93,15 +93,6 @@ namespace cforge
         UnLocalizedOffset() = default;
     };
 
-    // Replacement struct for the linker
-    struct RelocationEntry
-    {
-        UnLocalizedOffset offset;
-        std::string_view label; // Label to resolve
-        RelocationEntry(std::string_view sec, size_t off, std::string_view lab)
-            : offset(sec, off), label(lab) {}
-    };
-
     class Lexer
     {
     public:

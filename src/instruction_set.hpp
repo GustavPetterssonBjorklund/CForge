@@ -24,10 +24,41 @@ namespace cforge
 
     struct InstructionInfo
     {
-        uint8_t opcode;
+        enum class Type
+        {
+            R_TYPE = 0x33,
+            I_TYPE = 0x13,
+            LOAD = 0x03,
+            STORE = 0x23,
+            BRANCH = 0x63,
+            U_TYPE = 0x37,
+            J_TYPE = 0x6F,
+        };
+
+        Type opcode;
+
+        uint8_t func3;
+        uint8_t func7;
+
         uint8_t operand_count;
-        uint8_t base_size;    // Base instruction size in bytes
-        bool variable_length; // Can this instruction have variable length?
+    };
+
+    struct RelocationEntry
+    {
+        enum class Type
+        {
+            ABSOLUTE, // primarily for labels
+        } type;
+
+        std::string section; // Section name
+        size_t offset;       // Offset in the section
+        std::string symbol;  // Symbol to resolve
+    };
+
+    struct CompiledInstruction
+    {
+        std::vector<uint8_t> bytes;               // Compiled instruction bytes
+        std::vector<RelocationEntry> relocations; // Relocation entries for linking
     };
 
     class InstructionSet
@@ -59,10 +90,17 @@ namespace cforge
         static bool IsValidRegister(std::string_view reg);
 
         static const InstructionInfo *GetInstructionInfo(std::string_view mnemonic);
+
+        /**
+         * @brief Get the register code for a given register name.
+         * @param reg The register name (e.g., "x0", "x1", etc.).
+         * @note also supports register aliases like "zero", "ra", etc.
+         * @return The register code (0-31) for the given register.
+         */
         static uint8_t GetRegisterCode(std::string_view reg);
 
         /**
-         * Get the bytes for a data type and its values.
+         * @brief Get the bytes for a data type and its values.
          * @param data_type Type of data, must be one of the valid data types.
          * @param data Values to convert to bytes.
          * @return Vector of bytes representing the data.
@@ -72,7 +110,22 @@ namespace cforge
             const std::vector<std::string_view> &data);
 
         /**
-         * Calculate size of data based on type and amount of values
+         * @brief Compiles an instruction into its bytecode representation.
+         * @attention This method makes some relocations for labels.
+         * @param mnemonic The mnemonic of the instruction.
+         * @param operands The operands for the instruction.
+         * @param line The line number in the source code (for error reporting).
+         * @return A vector of bytes representing the compiled instruction.
+         * @note If the instruction requires expansion to 8 bytes, this method will
+         * return 8-bytes instead of 4.
+         */
+        static CompiledInstruction CompileInstruction(
+            std::string_view mnemonic,
+            const std::vector<std::string_view> &operands,
+            uint32_t line = 0);
+
+        /**
+         * @brief Calculates the size of data based on type and amount of values
          * @attention This method will return UB if data type is invalid
          * @param data_type Type of data MUST be one of the valid data types
          * as defined in `kValidDataTypes`.
@@ -80,12 +133,15 @@ namespace cforge
         static size_t CalculateDataSize(std::string_view data_type,
                                         const std::vector<std::string_view> &data);
 
-        // Calculate instruction size based on operands
+        /**
+         * @brief Calculates the size of an instruction based on it's mnemonic and operands.
+         * @attention This method is def broken for expanding instructions
+         */
         static size_t CalculateInstructionSize(std::string_view mnemonic,
                                                const std::vector<std::string_view> &operands);
 
         /**
-         * Determine addressing mode of an operand.
+         * @brief Determine addressing mode of an operand.
          * I.e. whether it's a register, immediate value, memory reference, or label.
          * NOTE: Not sure if this is even used?
          */
@@ -93,6 +149,26 @@ namespace cforge
         static bool IsImmediate(std::string_view operand);
         static bool IsMemoryReference(std::string_view operand);
         static bool IsRegister(std::string_view operand);
+
+    private:
+        static CompiledInstruction CompileRTypeInstruction(
+            const InstructionInfo *info,
+            const std::vector<std::string_view> &operands);
+        static CompiledInstruction CompileITypeInstruction(
+            const InstructionInfo *info,
+            const std::vector<std::string_view> &operands);
+        static CompiledInstruction CompileLoadStoreInstruction(
+            const InstructionInfo *info,
+            const std::vector<std::string_view> &operands);
+        static CompiledInstruction CompileBranchInstruction(
+            const InstructionInfo *info,
+            const std::vector<std::string_view> &operands);
+        static CompiledInstruction CompileUTypeInstruction(
+            const InstructionInfo *info,
+            const std::vector<std::string_view> &operands);
+        static CompiledInstruction CompileJTypeInstruction(
+            const InstructionInfo *info,
+            const std::vector<std::string_view> &operands);
     };
 
 }

@@ -400,12 +400,36 @@ namespace cforge
             throw Error("Instruction used in non \".text\" section", ptr->line);
         }
 
+        std::string_view mnemonic =
+            static_cast<InstrStmt *>(ptr.get())->mnemonic;
+        std::vector<std::string_view> operands =
+            static_cast<InstrStmt *>(ptr.get())->operands;
+
         size_t instruction_size = CalculateInstructionSize(
-            static_cast<InstrStmt *>(ptr.get())->mnemonic,
-            static_cast<InstrStmt *>(ptr.get())->operands);
+            mnemonic,
+            operands);
 
         // Will always be .text section*, but this is consistent
         section_size_map_[current_section_] += instruction_size;
+
+        // Compile the instruction
+        CompiledInstruction compiled = InstructionSet::CompileInstruction(
+            mnemonic,
+            operands,
+            ptr->line);
+
+        // Store the compiled instruction in the section data map
+        auto &section_data = section_data_map_[current_section_];
+        section_data.insert(
+            section_data.end(),
+            compiled.bytes.begin(),
+            compiled.bytes.end());
+
+        // Add relocations if any
+        for (const auto &reloc : compiled.relocations)
+        {
+            relocations_.push_back(reloc);
+        }
 
         return ptr;
     }
@@ -520,6 +544,8 @@ namespace cforge
             }
             std::cout << "\n";
         }
+
+        return stmts;
     }
 
 } // namespace cforge
