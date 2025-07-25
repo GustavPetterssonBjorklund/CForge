@@ -1,5 +1,6 @@
 #include "instruction_set.hpp"
 #include <algorithm>
+#include <stdexcept>
 
 namespace cforge
 {
@@ -75,7 +76,7 @@ namespace cforge
         {"r0", 0x00}, {"r1", 0x01}, {"r2", 0x02}, {"r3", 0x03}, {"r4", 0x04}, {"r5", 0x05}, {"r6", 0x06}, {"r7", 0x07}, {"sp", 0x0E}, {"pc", 0x0F}};
 
     const std::unordered_set<std::string_view> InstructionSet::kDirectives = {
-        ".section", ".globl", ".data", ".text", ".byte", ".word", ".dword", ".ascii", ".align"};
+        ".section", ".globl", ".data", ".text", ".byte", ".word", ".dword", ".ascii", ".align", ".space"};
 
     const std::unordered_map<std::string_view, size_t> InstructionSet::kValidDataTypes = {
         {".byte", 1}, {".half", 2}, {".word", 4}, {".dword", 8}, {".ascii", 1}};
@@ -121,6 +122,62 @@ namespace cforge
             throw Error("Unknown instruction: " + std::string(mnemonic));
         }
         return &it->second; // Return pointer to the InstructionInfo
+    }
+
+    std::vector<uint8_t> InstructionSet::GetDataBytes(
+        const std::string_view data_type,
+        const std::vector<std::string_view> &data)
+    {
+        auto it = kValidDataTypes.find(data_type);
+        if (it == kValidDataTypes.end())
+        {
+            throw Error("Invalid data type: " + std::string(data_type));
+        }
+
+        // Convert the data to bytes based on the type
+        size_t entry_size = it->second;
+        std::vector<uint8_t> bytes;
+        bytes.reserve(entry_size * data.size());
+
+        for (const auto &value : data)
+        {
+            // Note that the value could be in hex, bin, or decimal format
+            if (value.empty())
+            {
+                throw Error("Empty value for data type: " + std::string(data_type));
+            }
+            try
+            {
+                // Convert the value to an integer
+                int64_t int_value = std::stoll(std::string(value), nullptr, 0);
+
+                // Ensure the value fits in the specified entry size
+                if (int_value < 0 || int_value >= (1ULL << (entry_size * 8)))
+                {
+                    throw Error("Value out of range for data type: " + std::string(data_type) + " - " + std::string(value));
+                }
+
+#ifdef LITTLE_ENDIAN
+                // Handle different data types
+                for (size_t i = 0; i < entry_size; ++i)
+                {
+                    bytes.push_back(static_cast<uint8_t>((int_value >> (i * 8)) & 0xFF));
+                }
+#else
+                for (size_t i = 0; i < entry_size; ++i)
+                {
+                    bytes.push_back(static_cast<uint8_t>((int_value >> ((entry_size - 1 - i) * 8)) & 0xFF));
+                }
+#endif
+            }
+            catch (const std::invalid_argument &)
+            {
+                throw Error("Invalid value for data type: " + std::string(data_type) + " - " + std::string(value));
+            }
+        }
+
+        bytes.shrink_to_fit(); // Ensure the vector is sized correctly
+        return bytes;
     }
 
     size_t InstructionSet::CalculateDataSize(std::string_view data_type,

@@ -142,6 +142,31 @@ namespace cforge
     }
 
     /**
+     * Creates a token from a number, can be of type bin, hex or decimal.
+     */
+    void Lexer::LexNumber()
+    {
+        size_t start = pos_;
+
+        // Consume digits and optional prefix
+        auto view = ConsumeWhile(
+            [](char c)
+            {
+                unsigned char uc = static_cast<unsigned char>(c);
+                return std::isdigit(uc) || (uc >= 'a' && uc <= 'f') || (uc >= 'A' && uc <= 'F') || uc == 'x' || uc == 'b' || uc == 'X' || uc == 'B';
+            },
+            start);
+
+        if (!view.empty())
+        {
+            tokens_.push_back(Token{
+                Token::Type::NUMBER,
+                view,
+                line_});
+        }
+    }
+
+    /**
      * Tokenizes the source string by processing characters one by one.
      * It identifies directives, identifiers, and other token types.
      */
@@ -158,10 +183,13 @@ namespace cforge
 
             curr_ = Peek();
 
-            // Check for special characters first
             LexSpecialCharacter();
 
-            if (curr_ == '.')
+            if (isdigit(static_cast<unsigned char>(curr_)))
+            {
+                LexNumber();
+            }
+            else if (curr_ == '.')
             {
                 Advance(); // Consume the '.'
                 LexDirective();
@@ -266,7 +294,7 @@ namespace cforge
         }
         auto offset = UnLocalizedOffset(
             current_section_,
-			section_map_[current_section_]);
+            section_size_map_[current_section_]);
         symbol_map_[name] = offset;
 
         return ptr;
@@ -278,11 +306,11 @@ namespace cforge
         auto *d = static_cast<DirectiveStmt *>(ptr.get());
         if (!InstructionSet::IsValidDirective(d->name))
         {
-            throw Error(std::string(d->name), d->line, "Unknown directive");
+            throw Error(std::string(d->name), d->line, "Invalid directive");
         }
 
         // FIX: Remember to handle errors for:
-        // - globl lable not defined
+        // - globl label not defined
         // - multiple equal definitions for globl labels
         if (d->name == ".globl")
         {
@@ -292,8 +320,13 @@ namespace cforge
                 throw Error(std::string(d->name), d->line, "Expected exactly one argument for .globl directive");
             }
             auto label = d->args[0];
-			global_symbols_.insert(label);
-		}
+            global_symbols_.insert(label);
+        }
+        // TODO:: Implement
+        else if (d->name == ".align")
+        {
+            throw Error(std::string(d->name), d->line, "Directive not implemented yet");
+        }
         // Check for .section directive
         else if (d->name == ".section")
         {
@@ -302,11 +335,30 @@ namespace cforge
                 throw Error(std::string(d->name), d->line, "Expected exactly one argument for .section directive");
             }
             // Switch to the next section while safely initializing `section_map_`
-            if (section_map_.find(d->args[0]) == section_map_.end())
+            if (section_size_map_.find(d->args[0]) == section_size_map_.end())
             {
-                section_map_[d->args[0]] = 0; // Initialize section size to 0
+                section_size_map_[d->args[0]] = 0; // Initialize section size to 0
             }
             current_section_ = d->args[0];
+        }
+        else if (d->name == ".space")
+        {
+            if (d->args.size() != 1)
+            {
+                throw Error(std::string(d->name), d->line, "Expected exactly one argument for .space directive");
+            }
+            // Convert the argument to a size_t
+            size_t space_size = std::stoul(std::string(d->args[0]));
+            // Make sure we're in a valid section for .space
+            if (current_section_.empty())
+            {
+                throw Error("Space directive used outside of a section", d->line);
+            }
+            // Update the section size map
+            section_size_map_[current_section_] += space_size;
+            // Initialize the section data with zeros
+            section_data_map_[current_section_].resize(
+                section_data_map_[current_section_].size() + space_size, 0);
         }
         // Check for valid data directive
         else if (IsValidDataType(d->name))
@@ -319,7 +371,21 @@ namespace cforge
 
             // Calculate the size of the data
             size_t data_size = InstructionSet::CalculateDataSize(d->name, d->args);
-            section_map_[current_section_] += data_size;
+            section_size_map_[current_section_] += data_size;
+
+            // Convert data to bytes
+            std::vector<uint8_t> data_bytes = InstructionSet::GetDataBytes(d->name, d->args);
+
+            // Store the data in the section data map
+            section_data_map_[current_section_].insert(
+                section_data_map_[current_section_].end(),
+                data_bytes.begin(),
+                data_bytes.end());
+        }
+        else
+        {
+
+            throw Error(std::string(d->name), d->line, "Directive is valid but not handled by the assembler");
         }
 
         return ptr;
@@ -339,7 +405,7 @@ namespace cforge
             static_cast<InstrStmt *>(ptr.get())->operands);
 
         // Will always be .text section*, but this is consistent
-        section_map_[current_section_] += instruction_size;
+        section_size_map_[current_section_] += instruction_size;
 
         return ptr;
     }
@@ -351,7 +417,7 @@ namespace cforge
         index_ = 0;
 
         // Reset section management
-        section_map_.clear();
+        section_size_map_.clear();
         current_section_ = "";
         relocations_.clear();
 
@@ -422,7 +488,7 @@ namespace cforge
 
         // Print section sizes
         std::cout << "Section sizes:\n";
-        for (const auto &section : section_map_)
+        for (const auto &section : section_size_map_)
         {
             std::cout << "  " << section.first << ": " << section.second << " bytes\n";
         }
@@ -436,14 +502,24 @@ namespace cforge
                       << symbol.second.offset << "\n";
         }
 
-		// Print global symbols
-		std::cout << "Global symbols:\n";
-		for (const auto& symbol : global_symbols_)
-		{
-			std::cout << "  " << symbol << "\n";
-		}
+        // Print global symbols
+        std::cout << "Global symbols:\n";
+        for (const auto &symbol : global_symbols_)
+        {
+            std::cout << "  " << symbol << "\n";
+        }
 
-        return stmts;
+        // Print raw data in sections
+        std::cout << "Section data:\n";
+        for (const auto &section : section_data_map_)
+        {
+            std::cout << "  " << section.first << ": ";
+            for (const auto &byte : section.second)
+            {
+                std::cout << std::hex << static_cast<int>(byte) << " ";
+            }
+            std::cout << "\n";
+        }
     }
 
 } // namespace cforge

@@ -1,6 +1,15 @@
 #pragma once
+
+// Ensure macro definitions are set
+
+// Ensure an endianess macro is defined
+#if !defined(LITTLE_ENDIAN) && !defined(BIG_ENDIAN)
+#error "Endianess macro not defined. Define either LITTLE_ENDIAN or BIG_ENDIAN."
+#endif
+
 #include "instruction_set.hpp"
 #include "error.hpp"
+#include "ir_parser.hpp"
 
 // lib
 #include <string>
@@ -19,6 +28,7 @@ namespace cforge
             IDENTIFIER,
             DIRECTIVE,
             LABEL,
+            NUMBER,
             NEWLINE,
             COMMA,
         } type;
@@ -80,7 +90,7 @@ namespace cforge
         size_t offset;            // Offset in the section
         UnLocalizedOffset(std::string_view sec, size_t off)
             : section(sec), offset(off) {}
-		UnLocalizedOffset() = default; 
+        UnLocalizedOffset() = default;
     };
 
     // Replacement struct for the linker
@@ -129,6 +139,7 @@ namespace cforge
         void LexDirective();
         void LexLabelOrIdentifier();
         void LexSpecialCharacter();
+        void LexNumber();
 
         // Predicate-based chunk consumer
         template <typename Predicate>
@@ -169,13 +180,14 @@ namespace cforge
         size_t index_ = 0;
 
         // Section management
-        std::unordered_map<std::string_view, size_t> section_map_;
+        std::unordered_map<std::string_view, size_t> section_size_map_;
+        std::unordered_map<std::string_view, std::vector<uint8_t>> section_data_map_; // For "compiled" data
         std::string_view current_section_ = "";
 
-        // Relocation & linking 
+        // Relocation & linking
         std::unordered_map<std::string_view, UnLocalizedOffset> symbol_map_;
-		std::unordered_set<std::string_view> global_symbols_;
+        std::unordered_set<std::string_view> global_symbols_;
         std::vector<RelocationEntry> relocations_;
     };
 
-} // namespace cforge
+}; // namespace cforge

@@ -62,6 +62,16 @@ namespace cforge
         static uint8_t GetRegisterCode(std::string_view reg);
 
         /**
+         * Get the bytes for a data type and its values.
+         * @param data_type Type of data, must be one of the valid data types.
+         * @param data Values to convert to bytes.
+         * @return Vector of bytes representing the data.
+         */
+        static std::vector<uint8_t> GetDataBytes(
+            const std::string_view data_type,
+            const std::vector<std::string_view> &data);
+
+        /**
          * Calculate size of data based on type and amount of values
          * @attention This method will return UB if data type is invalid
          * @param data_type Type of data MUST be one of the valid data types
