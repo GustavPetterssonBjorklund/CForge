@@ -12,16 +12,6 @@
 namespace cforge
 {
 
-    enum class AddressingMode : uint8_t
-    {
-        REGISTER,           // mov r1, r2
-        IMMEDIATE,          // mov r1, #100
-        REGISTER_IMMEDIATE, // mov r1, r2, #100
-        MEMORY_DIRECT,      // mov r1, [0x1000]
-        MEMORY_INDIRECT,    // mov r1, [r2]
-        LABEL               // jmp label_name
-    };
-
     struct InstructionInfo
     {
         enum class Type
@@ -33,6 +23,7 @@ namespace cforge
             BRANCH = 0x63,
             U_TYPE = 0x37,
             J_TYPE = 0x6F,
+            NONE = 0x00,
         };
 
         Type opcode;
@@ -140,12 +131,6 @@ namespace cforge
         static size_t CalculateInstructionSize(std::string_view mnemonic,
                                                const std::vector<std::string_view> &operands);
 
-        /**
-         * @brief Determine addressing mode of an operand.
-         * I.e. whether it's a register, immediate value, memory reference, or label.
-         * NOTE: Not sure if this is even used?
-         */
-        static AddressingMode DetermineAddressingMode(std::string_view operand);
         static bool IsImmediate(std::string_view operand);
         static bool IsMemoryReference(std::string_view operand);
         static bool IsRegister(std::string_view operand);
@@ -170,5 +155,4 @@ namespace cforge
             const InstructionInfo *info,
             const std::vector<std::string_view> &operands);
     };
-
 }

@@ -55,7 +55,7 @@ namespace cforge
 
         // Jumps
         {"jal", {InstructionInfo::Type::J_TYPE, 0, 0, 2}},
-        {"jalr", {InstructionInfo::Type::I_TYPE, 0b000, 0, 2}},
+        {"jalr", {InstructionInfo::Type::J_TYPE, 0b000, 0, 2}}, // Note: This instruction is not actaully a J_TYPE, but it's compiled in that group
 
         // Common pseudo‑instructions (not real hardware ops)
         {"nop", {InstructionInfo::Type::I_TYPE, 0b000, 0, 0}},          // addi x0,x0,0
@@ -236,18 +236,11 @@ namespace cforge
                     throw Error("Value out of range for data type: " + std::string(data_type) + " - " + std::string(value));
                 }
 
-#ifdef LITTLE_ENDIAN
                 // Handle different data types
                 for (size_t i = 0; i < entry_size; ++i)
                 {
                     bytes.push_back(static_cast<uint8_t>((int_value >> (i * 8)) & 0xFF));
                 }
-#else
-                for (size_t i = 0; i < entry_size; ++i)
-                {
-                    bytes.push_back(static_cast<uint8_t>((int_value >> ((entry_size - 1 - i) * 8)) & 0xFF));
-                }
-#endif
             }
             catch (const std::invalid_argument &)
             {
@@ -273,6 +266,8 @@ namespace cforge
             {
             case InstructionInfo::Type::R_TYPE:
                 return CompileRTypeInstruction(info, operands);
+            case InstructionInfo::Type::I_TYPE:
+                return CompileITypeInstruction(info, operands);
 
             default:
                 return CompiledInstruction{};
@@ -311,17 +306,51 @@ namespace cforge
             (static_cast<uint32_t>(rd) << 7) |
             (static_cast<uint32_t>(info->opcode));
 
-#ifdef LITTLE_ENDIAN
         instruction.bytes[0] = inst & 0xFF;
         instruction.bytes[1] = (inst >> 8) & 0xFF;
         instruction.bytes[2] = (inst >> 16) & 0xFF;
         instruction.bytes[3] = (inst >> 24) & 0xFF;
-#else // BIG_ENDIAN
-        instruction.bytes[0] = (inst >> 24) & 0xFF;
-        instruction.bytes[1] = (inst >> 16) & 0xFF;
-        instruction.bytes[2] = (inst >> 8) & 0xFF;
-        instruction.bytes[3] = inst & 0xFF;
-#endif
+
+        return instruction;
+    }
+
+    CompiledInstruction InstructionSet::CompileITypeInstruction(
+        const InstructionInfo *info,
+        const std::vector<std::string_view> &operands)
+    {
+        // Expect 2 register operands and 1 immediate value
+        if (operands.size() != 3)
+        {
+            throw std::runtime_error("I-type instruction requires exactly 3 operands: ");
+        }
+
+        // Convert register operands to codes
+        uint8_t rd = GetRegisterCode(operands[0]);
+        uint8_t rs1 = GetRegisterCode(operands[1]);
+        // Parse the immediate value
+        int32_t imm = 0;
+        try
+        {
+            imm = std::stoi(std::string(operands[2]), nullptr, 0);
+        }
+        catch (const std::invalid_argument &)
+        {
+            throw Error("Invalid immediate value: " + std::string(operands[2]));
+        }
+
+        // Create the instruction bytes
+        CompiledInstruction instruction;
+        instruction.bytes.resize(4);
+        uint32_t inst =
+            (static_cast<uint32_t>((imm | 0) & 0xFFF) << 20) | // Immediate
+            (static_cast<uint32_t>(rs1) << 15) |               // rs1
+            (static_cast<uint32_t>(info->func3) << 12) |       // func3
+            (static_cast<uint32_t>(rd) << 7) |                 // rd
+            (static_cast<uint32_t>(info->opcode));             // opcode
+        instruction.bytes[0] = inst & 0xFF;
+        instruction.bytes[1] = (inst >> 8) & 0xFF;
+        instruction.bytes[2] = (inst >> 16) & 0xFF;
+        instruction.bytes[3] = (inst >> 24) & 0xFF;
 
         return instruction;
     }
@@ -343,42 +372,6 @@ namespace cforge
                                                     const std::vector<std::string_view> &operands)
     {
         return 4;
-    }
-
-    AddressingMode InstructionSet::DetermineAddressingMode(std::string_view operand)
-    {
-        if (operand.empty())
-            return AddressingMode::REGISTER;
-
-        if (IsRegister(operand))
-        {
-            return AddressingMode::REGISTER;
-        }
-
-        if (IsImmediate(operand))
-        {
-            return AddressingMode::IMMEDIATE;
-        }
-
-        if (IsMemoryReference(operand))
-        {
-            // Check if it's indirect [r1] or direct [0x1000]
-            if (operand.size() > 2 && operand.front() == '[' && operand.back() == ']')
-            {
-                std::string_view inner = operand.substr(1, operand.size() - 2);
-                if (IsRegister(inner))
-                {
-                    return AddressingMode::MEMORY_INDIRECT;
-                }
-                else
-                {
-                    return AddressingMode::MEMORY_DIRECT;
-                }
-            }
-        }
-
-        // If it's not a register, immediate, or memory reference, assume it's a label
-        return AddressingMode::LABEL;
     }
 
     bool InstructionSet::IsImmediate(std::string_view operand)

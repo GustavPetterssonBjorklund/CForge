@@ -1,12 +1,5 @@
 #pragma once
 
-// Ensure macro definitions are set
-
-// Ensure an endianess macro is defined
-#if !defined(LITTLE_ENDIAN) && !defined(BIG_ENDIAN)
-#error "Endianess macro not defined. Define either LITTLE_ENDIAN or BIG_ENDIAN."
-#endif
-
 #include "instruction_set.hpp"
 #include "error.hpp"
 #include "ir_parser.hpp"

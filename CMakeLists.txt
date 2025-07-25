@@ -9,5 +9,3 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 file(GLOB_RECURSE SRC_FILES src/*.cpp src/*.c)
 
 add_executable(CForge ${SRC_FILES})
-
-target_compile_definitions(CForge PRIVATE BIG_ENDIAN)
