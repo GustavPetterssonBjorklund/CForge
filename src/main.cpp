@@ -1,4 +1,4 @@
-#include "assembler.h"
+#include "assembler.hpp"
 
 // lib
 #include <iostream>
@@ -29,16 +29,24 @@ int main()
                               std::istreambuf_iterator<char>());
     file.close();
 
-    // Create a Lexer instance and set the source file
-    cforge::Lexer lexer;
-    lexer.set_source(file_contents);
+    try
+    {
 
-    lexer.Analyze();
+        cforge::Lexer lexer;
+        lexer.set_source(file_contents);
 
-    cforge::Parser parser;
-    auto tokens = lexer.get_tokens();
+        lexer.Analyze();
 
-    parser.Parse(tokens);
+        cforge::Parser parser;
+        auto tokens = lexer.get_tokens();
 
-    return 0;
+        parser.Parse(tokens);
+
+        return 0;
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << e.what() << std::endl;
+        return 1;
+    }
 }

@@ -1,4 +1,4 @@
-#include "assembler.h"
+#include "assembler.hpp"
 
 // lib
 #include <iostream>
@@ -63,8 +63,9 @@ namespace cforge
             else if (Peek() == '#')
             {
                 // skip until end of line
-                while (!IsAtEnd() && Advance() != '\n')
+                while (!IsAtEnd() && Peek() != '\n')
                 {
+                    Advance();
                 }
             }
             else
@@ -79,7 +80,7 @@ namespace cforge
         // '.' already consumed
         size_t start = pos_ - 1; // Start at the current position minus the consumed '.'
 
-        // Consume alumnn/_
+        // Consume alnum/_
         auto view = ConsumeWhile(
             [](char c)
             { return std::isalnum(c) || c == '_'; },
@@ -97,8 +98,9 @@ namespace cforge
         size_t start = pos_;
         // Consume alphanumeric characters and underscores
         auto view = ConsumeWhile(
+            // in accordance with cppreference, it is unsafe to run alnum() on char directly
             [](char c)
-            { return std::isalnum(c) || c == '_'; },
+            { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; },
             start);
 
         if (Peek() == ':')
@@ -127,7 +129,7 @@ namespace cforge
                 Token::Type::NEWLINE,
                 std::string_view("\n"),
                 line_});
-            Advance(); // Consume the newline character
+            return;
         }
         else if (curr_ == ',')
         {
@@ -135,11 +137,7 @@ namespace cforge
                 Token::Type::COMMA,
                 std::string_view(","),
                 line_});
-            Advance(); // Consume the comma
-        }
-        else
-        {
-            Advance(); // Consume the character
+            return;
         }
     }
 
@@ -149,6 +147,7 @@ namespace cforge
      */
     void Lexer::Tokenize()
     {
+
         while (!IsAtEnd())
         {
 
@@ -160,6 +159,7 @@ namespace cforge
             curr_ = Peek();
 
             // Check for special characters first
+            LexSpecialCharacter();
 
             if (curr_ == '.')
             {
@@ -172,76 +172,278 @@ namespace cforge
             }
             else
             {
-                LexSpecialCharacter();
+                Advance();
             }
         }
 
+        // Print all tokens for debugging
         for (const auto &token : tokens_)
         {
-            std::cout << "Token: " << token.value << " Type: " << static_cast<int>(token.type) << " Line: " << token.line_number << std::endl;
+            std::cout << "Token: " << token.value << " (Type: "
+                      << static_cast<int>(token.type) << ", Line: "
+                      << token.line_number << ")\n";
         }
     }
 
     ///////////////////////////////////////////////////////////////////////////
     /// Parser Implementation
     ///////////////////////////////////////////////////////////////////////////
-    std::vector<std::unique_ptr<Stmt>> Parser::Parse(const std::vector<Token> &tokens)
+
+    Token &Parser::Peek()
     {
-        size_t index = 0;
-        auto Peek = [&]() -> const Token &
+        if (index_ >= tokens_.size())
         {
-            return tokens[index];
-        };
-        auto consume = [&]()
+            throw Error("Unexpected end of input", 0, "No more tokens available");
+        }
+        return tokens_[index_];
+    }
+    Token &Parser::Consume()
+    {
+        if (index_ >= tokens_.size())
         {
-            return tokens[index++];
-        };
+            throw Error("Unexpected end of input", 0, "No more tokens available");
+        }
+        return tokens_[index_++];
+    }
 
-        std::vector<std::unique_ptr<Stmt>> stmts;
-
-        while (index < tokens.size())
+    template <typename Pred>
+    std::vector<std::string_view> Parser::ConsumeWhileTokens(Pred &&pred)
+    {
+        std::vector<std::string_view> items;
+        while (index_ < tokens_.size() && pred(Peek()))
         {
-            std::cout << "Parsing token at index " << index << ": " << Peek().value << std::endl;
-            auto t = Peek();
-            if (t.type == Token::Type::DIRECTIVE)
+            if (Peek().type == Token::Type::COMMA)
             {
-                std::cout << "Directive: " << t.value << std::endl;
-                auto name = consume().value;
-                std::vector<std::string_view> args;
-                // Collect until end of line or next directive / instruction
-                while (index < tokens.size() && Peek().type != Token::Type::NEWLINE)
-                {
-                    std::cout << "Argument: " << Peek().value << std::endl;
-                    args.push_back(consume().value);
-                }
-                stmts.push_back(std::make_unique<DirectiveStmt>(name, std::move(args)));
-            }
-            else if (t.type == Token::Type::IDENTIFIER)
-            {
-                std::cout << "Identifier: " << t.value << std::endl;
-                // mnemonic
-                auto mnemonic = consume().value;
-                std::vector<std::string_view> operands;
-
-                while (index < tokens.size() && tokens[index].type != Token::Type::NEWLINE)
-                {
-                    if (tokens[index].type == Token::Type::COMMA)
-                    {
-                        ++index;  // Skip the comma
-                        continue; // Skip to next iteration to avoid adding the comma
-                    }
-                    operands.push_back(consume().value);
-                }
-                stmts.push_back(std::make_unique<InstrStmt>(mnemonic, std::move(operands)));
+                Consume();
             }
             else
             {
-                // std::cout << "No definition for token type: " << static_cast<int>(t.type) << " with value: " << t.value << std::endl;
-                consume();
+                items.push_back(Consume().value);
             }
         }
-        // TODO: remove
-        return std::vector<std::unique_ptr<Stmt>>{};
+        return items;
+    }
+
+    template <typename StmtT>
+    std::unique_ptr<Stmt> Parser::MakeSingleTokenStmt()
+    {
+        Token t = Consume();
+        auto ptr = std::make_unique<StmtT>(t.value);
+        ptr->line = t.line_number;
+        return ptr;
+    }
+
+    template <typename StmtT>
+    std::unique_ptr<Stmt> Parser::MakeListTokenStmt()
+    {
+        Token head = Consume();
+        // stop on NEWLINE
+        auto args = ConsumeWhileTokens(
+            [](auto const &tk)
+            {
+                return tk.type != Token::Type::NEWLINE;
+            });
+        auto ptr = std::make_unique<StmtT>(head.value, std::move(args));
+        ptr->line = head.line_number;
+        return ptr;
+    }
+
+    std::unique_ptr<Stmt> Parser::ParseLabelStmt()
+    {
+        std::unique_ptr<Stmt> ptr = MakeSingleTokenStmt<LabelStmt>();
+
+        // Must be inside a section
+        if (current_section_.empty())
+        {
+            throw Error("Label used outside of a section", ptr->line);
+        }
+
+        // Add the label to the symbol map
+        auto name = static_cast<LabelStmt *>(ptr.get())->name;
+        if (symbol_map_.find(name) != symbol_map_.end())
+        {
+            throw Error(std::string(name), ptr->line, "Label defined multiple times");
+        }
+        auto offset = UnLocalizedOffset(
+            current_section_,
+			section_map_[current_section_]);
+        symbol_map_[name] = offset;
+
+        return ptr;
+    }
+
+    std::unique_ptr<Stmt> Parser::ParseDirectiveStmt()
+    {
+        auto ptr = MakeListTokenStmt<DirectiveStmt>();
+        auto *d = static_cast<DirectiveStmt *>(ptr.get());
+        if (!InstructionSet::IsValidDirective(d->name))
+        {
+            throw Error(std::string(d->name), d->line, "Unknown directive");
+        }
+
+        // FIX: Remember to handle errors for:
+        // - globl lable not defined
+        // - multiple equal definitions for globl labels
+        if (d->name == ".globl")
+        {
+            // Handle global directive
+            if (d->args.size() != 1)
+            {
+                throw Error(std::string(d->name), d->line, "Expected exactly one argument for .globl directive");
+            }
+            auto label = d->args[0];
+			global_symbols_.insert(label);
+		}
+        // Check for .section directive
+        else if (d->name == ".section")
+        {
+            if (d->args.size() != 1)
+            {
+                throw Error(std::string(d->name), d->line, "Expected exactly one argument for .section directive");
+            }
+            // Switch to the next section while safely initializing `section_map_`
+            if (section_map_.find(d->args[0]) == section_map_.end())
+            {
+                section_map_[d->args[0]] = 0; // Initialize section size to 0
+            }
+            current_section_ = d->args[0];
+        }
+        // Check for valid data directive
+        else if (IsValidDataType(d->name))
+        {
+            // make sure the data directive exists in a valid section
+            if (!IsValidDataTypeSection(current_section_))
+            {
+                throw Error(std::string(d->name), d->line, "Data directive used in invalid section");
+            }
+
+            // Calculate the size of the data
+            size_t data_size = InstructionSet::CalculateDataSize(d->name, d->args);
+            section_map_[current_section_] += data_size;
+        }
+
+        return ptr;
+    }
+
+    std::unique_ptr<Stmt> Parser::ParseInstructionStmt()
+    {
+        std::unique_ptr<Stmt> ptr = MakeListTokenStmt<InstrStmt>();
+        // Make sure the instruction lives in a valid section
+        if (current_section_ != ".text")
+        {
+            throw Error("Instruction used in non \".text\" section", ptr->line);
+        }
+
+        size_t instruction_size = CalculateInstructionSize(
+            static_cast<InstrStmt *>(ptr.get())->mnemonic,
+            static_cast<InstrStmt *>(ptr.get())->operands);
+
+        // Will always be .text section*, but this is consistent
+        section_map_[current_section_] += instruction_size;
+
+        return ptr;
+    }
+
+    std::vector<std::unique_ptr<Stmt>> Parser::Parse(
+        const std::vector<Token> &tokens)
+    {
+        tokens_ = tokens;
+        index_ = 0;
+
+        // Reset section management
+        section_map_.clear();
+        current_section_ = "";
+        relocations_.clear();
+
+        std::vector<std::unique_ptr<Stmt>> stmts;
+        while (index_ < tokens_.size())
+        {
+            // skip blank lines
+            while (index_ < tokens_.size() &&
+                   Peek().type == Token::Type::NEWLINE)
+            {
+                Consume();
+            }
+            if (index_ >= tokens_.size())
+                break;
+
+            Token const tok = Peek();
+            std::unique_ptr<Stmt> stmt;
+            switch (tok.type)
+            {
+            case Token::Type::LABEL:
+                stmt = ParseLabelStmt();
+                break;
+            case Token::Type::DIRECTIVE:
+                stmt = ParseDirectiveStmt();
+                break;
+            case Token::Type::IDENTIFIER:
+                stmt = ParseInstructionStmt();
+                break;
+            default:
+                throw Error("Unexpected token '" + std::string(tok.value) + "'",
+                            tok.line_number,
+                            "Expected label, directive or instruction");
+            }
+
+            // consume a trailing newline if present
+            if (index_ < tokens_.size() &&
+                Peek().type == Token::Type::NEWLINE)
+            {
+                Consume();
+            }
+            stmts.push_back(std::move(stmt));
+        }
+
+        // Print all parsed statements for debugging
+        for (const auto &stmt : stmts)
+        {
+            switch (stmt->kind)
+            {
+            case Stmt::Kind::LABEL:
+                std::cout << "Parsed Label: " << static_cast<LabelStmt *>(stmt.get())->name << "\n";
+                break;
+            case Stmt::Kind::DIRECTIVE:
+                std::cout << "Parsed Directive: " << static_cast<DirectiveStmt *>(stmt.get())->name << "\n";
+                for (const auto &arg : static_cast<DirectiveStmt *>(stmt.get())->args)
+                {
+                    std::cout << "  Arg: " << arg << "\n";
+                }
+                break;
+            case Stmt::Kind::INSTRUCTION:
+                std::cout << "Parsed Instruction: " << static_cast<InstrStmt *>(stmt.get())->mnemonic << "\n";
+                for (const auto &arg : static_cast<InstrStmt *>(stmt.get())->operands)
+                {
+                    std::cout << "  Operand: " << arg << "\n";
+                }
+                break;
+            }
+        }
+
+        // Print section sizes
+        std::cout << "Section sizes:\n";
+        for (const auto &section : section_map_)
+        {
+            std::cout << "  " << section.first << ": " << section.second << " bytes\n";
+        }
+
+        // Print symbol map
+        std::cout << "Symbol map:\n";
+        for (const auto &symbol : symbol_map_)
+        {
+            std::cout << "  " << symbol.first << ": "
+                      << symbol.second.section << " at offset "
+                      << symbol.second.offset << "\n";
+        }
+
+		// Print global symbols
+		std::cout << "Global symbols:\n";
+		for (const auto& symbol : global_symbols_)
+		{
+			std::cout << "  " << symbol << "\n";
+		}
+
+        return stmts;
     }
 
 } // namespace cforge

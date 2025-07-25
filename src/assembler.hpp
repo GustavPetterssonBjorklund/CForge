@@ -1,4 +1,6 @@
 #pragma once
+#include "instruction_set.hpp"
+#include "error.hpp"
 
 // lib
 #include <string>
@@ -34,6 +36,7 @@ namespace cforge
             DIRECTIVE,
             INSTRUCTION,
         } kind;
+        uint32_t line = EOF; // Primarily for logging compiler errors
         virtual ~Stmt() = default;
     };
 
@@ -71,12 +74,22 @@ namespace cforge
         }
     };
 
-    struct Line
+    struct UnLocalizedOffset
     {
-        size_t line_number;
-        std::vector<Token> tokens;
+        std::string_view section; // Section name
+        size_t offset;            // Offset in the section
+        UnLocalizedOffset(std::string_view sec, size_t off)
+            : section(sec), offset(off) {}
+		UnLocalizedOffset() = default; 
+    };
 
-        Line(size_t line_num) : line_number(line_num) {}
+    // Replacement struct for the linker
+    struct RelocationEntry
+    {
+        UnLocalizedOffset offset;
+        std::string_view label; // Label to resolve
+        RelocationEntry(std::string_view sec, size_t off, std::string_view lab)
+            : offset(sec, off), label(lab) {}
     };
 
     class Lexer
@@ -122,23 +135,47 @@ namespace cforge
         std::string_view ConsumeWhile(Predicate &&p, size_t &start);
     };
 
-    class Parser
+    class Parser : InstructionSet
     {
     public:
-        Parser() = default;
-        ~Parser() = default;
-
-        std::vector<std::unique_ptr<Stmt>> Parse(const std::vector<Token> &tokens);
-    };
-
-    class Assembler
-    {
-    public:
-        Assembler() = default;
-        ~Assembler() = default;
-        Assembler(const Assembler &) = delete;
+        std::vector<std::unique_ptr<Stmt>> Parse(
+            const std::vector<Token> &tokens);
 
     private:
-        std::string source_file_;
+        Token &Peek();
+        Token &Consume();
+
+        // Consume tokens while `pred(peeked token)` returns true,
+        // skipping over commas.
+        template <typename Pred>
+        std::vector<std::string_view> ConsumeWhileTokens(Pred &&pred);
+
+        // Single-token statement, e.g. LabelStmt("foo")
+        template <typename StmtT>
+        std::unique_ptr<Stmt> MakeSingleTokenStmt();
+
+        // Head-token + list of comma-separated tokens, e.g.
+        // DirectiveStmt(".data", {"4", "8", "16"})
+        template <typename StmtT>
+        std::unique_ptr<Stmt> MakeListTokenStmt();
+
+        // Dispatch helpers
+        std::unique_ptr<Stmt> ParseLabelStmt();
+        std::unique_ptr<Stmt> ParseDirectiveStmt();
+        std::unique_ptr<Stmt> ParseInstructionStmt();
+
+        // storage & cursor
+        std::vector<Token> tokens_;
+        size_t index_ = 0;
+
+        // Section management
+        std::unordered_map<std::string_view, size_t> section_map_;
+        std::string_view current_section_ = "";
+
+        // Relocation & linking 
+        std::unordered_map<std::string_view, UnLocalizedOffset> symbol_map_;
+		std::unordered_set<std::string_view> global_symbols_;
+        std::vector<RelocationEntry> relocations_;
     };
-} // namespace cforge.assembler
+
+} // namespace cforge
