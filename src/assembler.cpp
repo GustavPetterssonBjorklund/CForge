@@ -235,9 +235,9 @@ namespace cforge
     }
 
     template <typename Pred>
-    std::vector<std::string_view> Parser::ConsumeWhileTokens(Pred &&pred)
+    std::vector<std::string> Parser::ConsumeWhileTokens(Pred &&pred)
     {
-        std::vector<std::string_view> items;
+        std::vector<std::string> items;
         while (index_ < tokens_.size() && pred(Peek()))
         {
             if (Peek().type == Token::Type::COMMA)
@@ -246,7 +246,7 @@ namespace cforge
             }
             else
             {
-                items.push_back(Consume().value);
+                items.push_back(std::string(Consume().value));
             }
         }
         return items;
@@ -256,7 +256,7 @@ namespace cforge
     std::unique_ptr<Stmt> Parser::MakeSingleTokenStmt()
     {
         Token t = Consume();
-        auto ptr = std::make_unique<StmtT>(t.value);
+        auto ptr = std::make_unique<StmtT>(std::string(t.value));
         ptr->line = t.line_number;
         return ptr;
     }
@@ -266,12 +266,12 @@ namespace cforge
     {
         Token head = Consume();
         // stop on NEWLINE
-        auto args = ConsumeWhileTokens(
+        std::vector<std::string> args = ConsumeWhileTokens(
             [](auto const &tk)
             {
                 return tk.type != Token::Type::NEWLINE;
             });
-        auto ptr = std::make_unique<StmtT>(head.value, std::move(args));
+        auto ptr = std::make_unique<StmtT>(std::string(head.value), std::move(args));
         ptr->line = head.line_number;
         return ptr;
     }
@@ -287,7 +287,7 @@ namespace cforge
         }
 
         // Add the label to the symbol map
-        auto name = static_cast<LabelStmt *>(ptr.get())->name;
+        std::string name = static_cast<LabelStmt *>(ptr.get())->name;
         if (symbol_map_.find(name) != symbol_map_.end())
         {
             throw Error(std::string(name), ptr->line, "Label defined multiple times");
@@ -304,48 +304,51 @@ namespace cforge
     {
         auto ptr = MakeListTokenStmt<DirectiveStmt>();
         auto *d = static_cast<DirectiveStmt *>(ptr.get());
+		std::string directive_name(d->name);
         if (!InstructionSet::IsValidDirective(d->name))
         {
-            throw Error(std::string(d->name), d->line, "Invalid directive");
+            throw Error(directive_name, d->line, "Invalid directive");
         }
 
         // FIX: Remember to handle errors for:
         // - globl label not defined
         // - multiple equal definitions for globl labels
-        if (d->name == ".globl")
+        if (directive_name == ".globl")
         {
             // Handle global directive
             if (d->args.size() != 1)
             {
-                throw Error(std::string(d->name), d->line, "Expected exactly one argument for .globl directive");
+                throw Error(directive_name, d->line, "Expected exactly one argument for .globl directive");
             }
             auto label = d->args[0];
-            global_symbols_.insert(label);
+            global_symbols_.insert(std::string(label));
         }
         // TODO:: Implement
-        else if (d->name == ".align")
+        else if (directive_name == ".align")
         {
-            throw Error(std::string(d->name), d->line, "Directive not implemented yet");
+            throw Error(directive_name, d->line, "Directive not implemented yet");
         }
         // Check for .section directive
-        else if (d->name == ".section")
+        else if (directive_name == ".section")
         {
             if (d->args.size() != 1)
             {
-                throw Error(std::string(d->name), d->line, "Expected exactly one argument for .section directive");
+                throw Error(directive_name, d->line, "Expected exactly one argument for .section directive");
             }
+			std::string section_name = d->args[0];
+
             // Switch to the next section while safely initializing `section_map_`
-            if (section_size_map_.find(d->args[0]) == section_size_map_.end())
+            if (section_size_map_.find(section_name) == section_size_map_.end())
             {
-                section_size_map_[d->args[0]] = 0; // Initialize section size to 0
+                section_size_map_[section_name] = 0; // Initialize section size to 0
             }
-            current_section_ = d->args[0];
+            current_section_ = section_name;
         }
-        else if (d->name == ".space")
+        else if (directive_name == ".space")
         {
             if (d->args.size() != 1)
             {
-                throw Error(std::string(d->name), d->line, "Expected exactly one argument for .space directive");
+                throw Error(directive_name, d->line, "Expected exactly one argument for .space directive");
             }
             // Convert the argument to a size_t
             size_t space_size = std::stoul(std::string(d->args[0]));
@@ -366,7 +369,7 @@ namespace cforge
             // make sure the data directive exists in a valid section
             if (!IsValidDataTypeSection(current_section_))
             {
-                throw Error(std::string(d->name), d->line, "Data directive used in invalid section");
+                throw Error(directive_name, d->line, "Data directive used in invalid section");
             }
 
             // Calculate the size of the data
@@ -385,7 +388,7 @@ namespace cforge
         else
         {
 
-            throw Error(std::string(d->name), d->line, "Directive is valid but not handled by the assembler");
+            throw Error(directive_name, d->line, "Directive is valid but not handled by the assembler");
         }
 
         return ptr;
@@ -400,9 +403,9 @@ namespace cforge
             throw Error("Instruction used in non \".text\" section", ptr->line);
         }
 
-        std::string_view mnemonic =
+        std::string mnemonic =
             static_cast<InstrStmt *>(ptr.get())->mnemonic;
-        std::vector<std::string_view> operands =
+        std::vector<std::string> operands =
             static_cast<InstrStmt *>(ptr.get())->operands;
 
         size_t instruction_size = CalculateInstructionSize(
@@ -419,7 +422,7 @@ namespace cforge
             ptr->line);
 
         // Store the compiled instruction in the section data map
-        auto &section_data = section_data_map_[current_section_];
+        auto &section_data = section_data_map_[std::string(current_section_)];
         section_data.insert(
             section_data.end(),
             compiled.bytes.begin(),
@@ -434,7 +437,7 @@ namespace cforge
         return ptr;
     }
 
-    std::vector<std::unique_ptr<Stmt>> Parser::Parse(
+    IR Parser::Parse(
         const std::vector<Token> &tokens)
     {
         tokens_ = tokens;
@@ -545,7 +548,22 @@ namespace cforge
             std::cout << "\n";
         }
 
-        return stmts;
+        // Create ir object
+        IR ir;
+        ir.version = "1.1";                                 // Set the IR version
+        ir.section_size_map = std::move(section_size_map_); // Move section sizes to IR
+        ir.section_data = std::move(section_data_map_);     // Move section data to IR
+        ir.symbol_map = std::move(symbol_map_);             // Move symbol map to IR
+        ir.relocations = std::move(relocations_);           // Move relocations to IR
+
+        // Get dir of src
+        std::filesystem::path src_dir = std::filesystem::path(__FILE__).parent_path();
+        std::filesystem::path json_file = src_dir / "../IR_BUILD/output.json";
+
+        // Write IR to file
+        IrParser::WriteToFile(ir, json_file);
+
+        return ir;
     }
 
 } // namespace cforge

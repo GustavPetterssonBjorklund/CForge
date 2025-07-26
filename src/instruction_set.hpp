@@ -1,4 +1,6 @@
 #pragma once
+
+#include "types.hpp"
 #include "error.hpp"
 
 // std
@@ -9,8 +11,12 @@
 #include <vector>
 #include <string>
 
+// lib
+#include <nlohmann/json.hpp>
+
 namespace cforge
 {
+    using json = nlohmann::json;
 
     struct InstructionInfo
     {
@@ -35,22 +41,6 @@ namespace cforge
         uint8_t func7;
 
         uint8_t operand_count;
-    };
-
-    struct RelocationEntry
-    {
-        enum class Type
-        {
-            R_RISC_V_HI20,   // High 20-bit for "lui", "auipc"
-            R_RISC_V_LO12_I, // Low 12-bit for "addi"
-            R_RISC_V_LO12_S, // Low 12-bit for "sw", "sh", "sb"
-            R_RISC_V_JAL,    // JAL label relocation
-        } type;
-
-        std::string section; // Section name
-        size_t instruction_id;
-
-        std::string symbol; // Symbol to resolve
     };
 
     struct CompiledInstruction
@@ -104,8 +94,8 @@ namespace cforge
          * @return Vector of bytes representing the data.
          */
         static std::vector<uint8_t> GetDataBytes(
-            const std::string_view data_type,
-            const std::vector<std::string_view> &data);
+            const std::string data_type,
+            const std::vector<std::string> &data);
 
         /**
          * @brief Compiles an instruction into its bytecode representation.
@@ -118,8 +108,8 @@ namespace cforge
          * return 8-bytes instead of 4.
          */
         static CompiledInstruction CompileInstruction(
-            std::string_view mnemonic,
-            const std::vector<std::string_view> &operands,
+            std::string mnemonic,
+            const std::vector<std::string> &operands,
             uint32_t line = 0);
 
         /**
@@ -129,43 +119,40 @@ namespace cforge
          * as defined in `kValidDataTypes`.
          */
         static size_t CalculateDataSize(std::string_view data_type,
-                                        const std::vector<std::string_view> &data);
+                                        const std::vector<std::string> &data);
 
         /**
          * @brief Calculates the size of an instruction based on it's mnemonic and operands.
          * @attention This method is def broken for expanding instructions
          */
-        static size_t CalculateInstructionSize(std::string_view mnemonic,
-                                               const std::vector<std::string_view> &operands);
-
-        static bool IsImmediate(std::string_view operand);
-        static bool IsMemoryReference(std::string_view operand);
-        static bool IsRegister(std::string_view operand);
+        static size_t CalculateInstructionSize(std::string mnemonic,
+                                               const std::vector<std::string> &operands);
 
     private:
         static CompiledInstruction CompileRTypeInstruction(
             const InstructionInfo *info,
-            const std::vector<std::string_view> &operands);
+            const std::vector<std::string> &operands);
         static CompiledInstruction CompileITypeInstruction(
             const InstructionInfo *info,
-            const std::vector<std::string_view> &operands);
+            const std::vector<std::string> &operands);
         static CompiledInstruction CompileLoadStoreInstruction(
             const InstructionInfo *info,
-            const std::vector<std::string_view> &operands);
+            const std::vector<std::string> &operands);
         static CompiledInstruction CompileBranchInstruction(
             const InstructionInfo *info,
-            const std::vector<std::string_view> &operands);
+            const std::vector<std::string> &operands);
         static CompiledInstruction CompileUTypeInstruction(
             const InstructionInfo *info,
             const std::vector<std::string_view> &operands);
         static CompiledInstruction CompileJTypeInstruction(
-            const std::string_view mnemonic,
+            const size_t &instruction_id,
+            const std::string mnemonic,
             const InstructionInfo *info,
-            const std::vector<std::string_view> &operands);
+            const std::vector<std::string> &operands);
         static CompiledInstruction CompilePseudoInstruction(
-            size_t &id,
-            const std::string_view mnemonic,
+            size_t &instruction_id,
+            const std::string mnemonic,
             const InstructionInfo *info,
-            const std::vector<std::string_view> &operands);
+            const std::vector<std::string> &operands);
     };
 }

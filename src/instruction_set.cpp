@@ -196,8 +196,8 @@ namespace cforge
     }
 
     std::vector<uint8_t> InstructionSet::GetDataBytes(
-        const std::string_view data_type,
-        const std::vector<std::string_view> &data)
+        const std::string data_type,
+        const std::vector<std::string> &data)
     {
         auto it = kValidDataTypes.find(data_type);
         if (it == kValidDataTypes.end())
@@ -245,8 +245,8 @@ namespace cforge
     }
 
     CompiledInstruction InstructionSet::CompileInstruction(
-        std::string_view mnemonic,
-        const std::vector<std::string_view> &operands,
+        std::string mnemonic,
+        const std::vector<std::string> &operands,
         uint32_t line)
     {
         const InstructionInfo *info = GetInstructionInfo(mnemonic);
@@ -257,8 +257,7 @@ namespace cforge
          * 4-byte instruction compiled, which (should) make Linking possible.
          */
         static size_t instruction_id = 0;
-
-        // Check type
+        std::cout << "instruction id: " << instruction_id << "\n";
         try
         {
             switch (info->opcode)
@@ -277,7 +276,7 @@ namespace cforge
             //     return CompileLoadStoreInstruction(info, operands);
             case InstructionInfo::Type::J_TYPE:
                 ++instruction_id;
-                return CompileJTypeInstruction(mnemonic, info, operands);
+                return CompileJTypeInstruction(instruction_id, mnemonic, info, operands);
             case InstructionInfo::Type::PSEUDO:
                 // `instruction_id` incremented by CompilePseudoInstruction
                 return CompilePseudoInstruction(instruction_id, mnemonic, info, operands);
@@ -293,7 +292,7 @@ namespace cforge
 
     CompiledInstruction InstructionSet::CompileRTypeInstruction(
         const InstructionInfo *info,
-        const std::vector<std::string_view> &operands)
+        const std::vector<std::string> &operands)
     {
         // Expect exactly 3 operands for R-type instructions
         if (operands.size() != 3)
@@ -328,7 +327,7 @@ namespace cforge
 
     CompiledInstruction InstructionSet::CompileITypeInstruction(
         const InstructionInfo *info,
-        const std::vector<std::string_view> &operands)
+        const std::vector<std::string> &operands)
     {
         // Expect 2 register operands and 1 immediate value
         if (operands.size() != 3)
@@ -369,9 +368,10 @@ namespace cforge
 
     // FIX: Doesn't work for jalr
     CompiledInstruction InstructionSet::CompileJTypeInstruction(
-        const std::string_view mnemonic,
+        const size_t &instruction_id,
+        const std::string mnemonic,
         const InstructionInfo *info,
-        const std::vector<std::string_view> &operands)
+        const std::vector<std::string> &operands)
     {
         if (mnemonic == "jal")
         {
@@ -401,7 +401,7 @@ namespace cforge
             instruction.relocations.push_back({
                 RelocationEntry::Type::R_RISC_V_JAL,
                 ".text", // Section must be text TODO: make sure this is checked before this point
-                0,       // Instruction ID will be set later
+                instruction_id,
                 label,
             });
 
@@ -418,10 +418,10 @@ namespace cforge
     }
 
     CompiledInstruction InstructionSet::CompilePseudoInstruction(
-        size_t &id,
-        const std::string_view mnemonic,
+        size_t &instruction_id,
+        const std::string mnemonic,
         const InstructionInfo *info,
-        const std::vector<std::string_view> &operands)
+        const std::vector<std::string> &operands)
     {
         CompiledInstruction instruction;
         // TODO: Don't assume all pseudo-instructions are 4 bytes
@@ -434,7 +434,7 @@ namespace cforge
                 throw std::runtime_error("la pseudo-instruction requires exactly 2 operands: ");
             }
 
-            std::string_view reg = operands[0];
+            std::string reg = operands[0];
 
             uint8_t rd = GetRegisterCode(reg);
 
@@ -447,18 +447,21 @@ namespace cforge
             // Add a relocation entry for the label
             instruction.relocations.push_back({
                 RelocationEntry::Type::R_RISC_V_LO12_I,
-                ".text", // Section must be text TODO: make sure this is checked before this point
-                id,      // Instruction ID
+                ".text",        // Section must be text TODO: make sure this is checked before this point
+                instruction_id, // Instruction ID
                 label,
             });
 
             // Increment the instruction ID
-            ++id;
+            ++instruction_id;
         }
         else if (mnemonic == "j")
         {
-            instruction = CompileJTypeInstruction("jal", GetInstructionInfo("jal"), std::vector<std::string_view>{"x0", operands[0]});
-            ++id; // Don't forget to increment the instruction ID for relocations
+            instruction = CompileJTypeInstruction(const_cast<size_t &>(instruction_id),
+                                                  "jal", GetInstructionInfo("jal"),
+                                                  std::vector<std::string>{"x0",
+                                                                           operands[0]});
+            ++instruction_id; // Don't forget to increment the instruction ID for relocations
         }
         else
         {
@@ -469,7 +472,7 @@ namespace cforge
     }
 
     size_t InstructionSet::CalculateDataSize(std::string_view data_type,
-                                             const std::vector<std::string_view> &data)
+                                             const std::vector<std::string> &data)
     {
         auto it = kValidDataTypes.find(data_type);
         if (it == kValidDataTypes.end())
@@ -481,24 +484,10 @@ namespace cforge
         return entry_size * data.size();
     }
 
-    size_t InstructionSet::CalculateInstructionSize(std::string_view mnemonic,
-                                                    const std::vector<std::string_view> &operands)
+    size_t InstructionSet::CalculateInstructionSize(std::string mnemonic,
+                                                    const std::vector<std::string> &operands)
     {
         return 4;
     }
 
-    bool InstructionSet::IsImmediate(std::string_view operand)
-    {
-        return !operand.empty() && operand.front() == '#';
-    }
-
-    bool InstructionSet::IsMemoryReference(std::string_view operand)
-    {
-        return operand.size() > 2 && operand.front() == '[' && operand.back() == ']';
-    }
-
-    bool InstructionSet::IsRegister(std::string_view operand)
-    {
-        return kRegisters.find(operand) != kRegisters.end();
-    }
 }

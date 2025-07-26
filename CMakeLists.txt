@@ -8,4 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB_RECURSE SRC_FILES src/*.cpp src/*.c)
 
+# Include json lib
+include_directories(${CMAKE_SOURCE_DIR}/lib/json/single_include)
+
 add_executable(CForge ${SRC_FILES})

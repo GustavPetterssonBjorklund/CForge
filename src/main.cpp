@@ -1,10 +1,13 @@
 #include "assembler.hpp"
+#include "linker.hpp"
 
-// lib
+// std
 #include <iostream>
 #include <filesystem>
 #include <fstream>
 #include <string>
+
+using namespace cforge;
 
 std::filesystem::path GetSourceFolder()
 {
@@ -37,10 +40,21 @@ int main()
 
         lexer.Analyze();
 
-        cforge::Parser parser;
+        Parser parser;
         auto tokens = lexer.get_tokens();
 
-        parser.Parse(tokens);
+        IR ir = parser.Parse(tokens);
+        std::cout << "Parsed IR version: " << ir.version << std::endl;
+
+        // link
+        Linker linker;
+        std::vector<uint8_t> linked_output = linker.Link(ir);
+        std::cout << "Linked output size: " << linked_output.size() << " bytes" << std::endl;
+        // Write liked output
+        for (const auto &byte : linked_output)
+        {
+            std::cout << std::hex << static_cast<int>(byte) << " ";
+        }
 
         return 0;
     }

@@ -1,0 +1,27 @@
+{
+    "relocations": [
+        {
+            "instruction_id": 1,
+            "section": ".text",
+            "symbol": "_hang",
+            "type": 3
+        }
+    ],
+    "sections": [
+        {
+            "data": [
+                147,
+                0,
+                16,
+                0,
+                111,
+                0,
+                0,
+                0
+            ],
+            "name": ".text",
+            "size": 8
+        }
+    ],
+    "version": "1.1"
+}

@@ -1,10 +1,11 @@
 #pragma once
 
-#include "instruction_set.hpp"
+#include "types.hpp"
 #include "error.hpp"
+#include "instruction_set.hpp"
 #include "ir_parser.hpp"
 
-// lib
+// std
 #include <string>
 #include <vector>
 #include <string_view>
@@ -45,9 +46,9 @@ namespace cforge
 
     struct LabelStmt : public Stmt
     {
-        std::string_view name;
+        std::string name;
 
-        LabelStmt(std::string_view name) : name(name)
+        LabelStmt(std::string name) : name(name)
         {
             kind = Kind::LABEL;
         }
@@ -55,10 +56,10 @@ namespace cforge
 
     struct DirectiveStmt : public Stmt
     {
-        std::string_view name;
-        std::vector<std::string_view> args;
+        std::string name;
+        std::vector<std::string> args;
 
-        DirectiveStmt(std::string_view name, std::vector<std::string_view> args)
+        DirectiveStmt(std::string name, std::vector<std::string> args)
             : name(name), args(std::move(args))
         {
             kind = Kind::DIRECTIVE;
@@ -67,23 +68,14 @@ namespace cforge
 
     struct InstrStmt : public Stmt
     {
-        std::string_view mnemonic;
-        std::vector<std::string_view> operands;
+        std::string mnemonic;
+        std::vector<std::string> operands;
 
-        InstrStmt(std::string_view mnemonic, std::vector<std::string_view> operands)
+        InstrStmt(std::string mnemonic, std::vector<std::string> operands)
             : mnemonic(mnemonic), operands(std::move(operands))
         {
             kind = Kind::INSTRUCTION;
         }
-    };
-
-    struct UnLocalizedOffset
-    {
-        std::string_view section; // Section name
-        size_t offset;            // Offset in the section
-        UnLocalizedOffset(std::string_view sec, size_t off)
-            : section(sec), offset(off) {}
-        UnLocalizedOffset() = default;
     };
 
     class Lexer
@@ -133,7 +125,7 @@ namespace cforge
     class Parser : InstructionSet
     {
     public:
-        std::vector<std::unique_ptr<Stmt>> Parse(
+        IR Parse(
             const std::vector<Token> &tokens);
 
     private:
@@ -143,7 +135,7 @@ namespace cforge
         // Consume tokens while `pred(peeked token)` returns true,
         // skipping over commas.
         template <typename Pred>
-        std::vector<std::string_view> ConsumeWhileTokens(Pred &&pred);
+        std::vector<std::string> ConsumeWhileTokens(Pred &&pred);
 
         // Single-token statement, e.g. LabelStmt("foo")
         template <typename StmtT>
@@ -164,13 +156,13 @@ namespace cforge
         size_t index_ = 0;
 
         // Section management
-        std::unordered_map<std::string_view, size_t> section_size_map_;
-        std::unordered_map<std::string_view, std::vector<uint8_t>> section_data_map_; // For "compiled" data
-        std::string_view current_section_ = "";
+        std::unordered_map<std::string, size_t> section_size_map_;
+        std::unordered_map<std::string, std::vector<uint8_t>> section_data_map_; // For "compiled" data
+        std::string current_section_ = "";
 
         // Relocation & linking
-        std::unordered_map<std::string_view, UnLocalizedOffset> symbol_map_;
-        std::unordered_set<std::string_view> global_symbols_;
+        std::unordered_map<std::string, UnLocalizedOffset> symbol_map_;
+        std::unordered_set<std::string> global_symbols_;
         std::vector<RelocationEntry> relocations_;
     };
 

@@ -1,6 +1,11 @@
 #pragma once
 
+#include "types.hpp"
 #include "error.hpp"
+#include "instruction_set.hpp"
+
+// lib
+#include <nlohmann/json.hpp>
 
 // std
 #include <memory>
@@ -12,66 +17,6 @@
 
 namespace cforge
 {
-	enum class IrParserFlags
-	{
-
-	};
-
-	enum class TargetArchitecture
-	{
-		RISC_V, // Only currently supported architecture
-	};
-
-	struct Metadata
-	{
-		std::string version; // Version of the IR
-	};
-
-	struct Section
-	{
-		size_t size;
-		std::vector<uint8_t> data;
-	};
-
-	/**
-	 * Object containing all the information that can / will be stored in a file
-	 * @note File structure is done in the following way:
-	 * [Metadata] (all metadata is defined a string)
-	 * version="<version>""
-	 * [Sections]
-	 * [.text]
-	 * <data>
-	 * [.data]
-	 * <data>
-	 * [.bss]
-	 * <data>
-	 * [Linker Metadata]
-	 * [.globl]
-	 * <global symbols>
-	 * [.rel]
-	 * <relocation entries>
-	 */
-	struct IR
-	{
-		/**
-		 * The version of the IR format
-		 */
-		std::string version;
-
-		/**
-		 * Flags
-		 */
-		IrParserFlags flags;
-		/**
-		 * Target architecture
-		 */
-		TargetArchitecture target_architecture;
-
-		/**
-		 * Sections in the IR
-		 */
-		std::unordered_map<std::string, Section> sections;
-	};
 
 	class IrParser
 	{
@@ -99,7 +44,7 @@ namespace cforge
 		 * @param path The path to write the file to.
 		 * @return True if the file was written successfully, false otherwise.
 		 */
-		void WriteToFile(const IR &ir, const std::filesystem::path &path);
+		static void WriteToFile(const IR &ir, const std::filesystem::path &path);
 
 	private:
 	};
