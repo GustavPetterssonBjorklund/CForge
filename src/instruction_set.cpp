@@ -1,6 +1,9 @@
 #include "instruction_set.hpp"
+
+// std
 #include <algorithm>
 #include <stdexcept>
+#include <iostream>
 
 namespace cforge
 {
@@ -55,23 +58,11 @@ namespace cforge
 
         // Jumps
         {"jal", {InstructionInfo::Type::J_TYPE, 0, 0, 2}},
-        {"jalr", {InstructionInfo::Type::J_TYPE, 0b000, 0, 2}}, // Note: This instruction is not actaully a J_TYPE, but it's compiled in that group
+        {"jalr", {InstructionInfo::Type::J_TYPE, 0b000, 0, 2}}, // Note: This instruction is not actually a J_TYPE, but it's compiled in that group
 
-        // Common pseudo‑instructions (not real hardware ops)
-        {"nop", {InstructionInfo::Type::I_TYPE, 0b000, 0, 0}},          // addi x0,x0,0
-        {"mv", {InstructionInfo::Type::I_TYPE, 0b000, 0, 2}},           // addi rd, rs, 0
-        {"li", {InstructionInfo::Type::U_TYPE, 0, 0, 2}},               // lui/addi sequence
-        {"not", {InstructionInfo::Type::I_TYPE, 0b100, 0, 2}},          // xori rd,rs,-1
-        {"neg", {InstructionInfo::Type::R_TYPE, 0b000, 0b0100000, 2}},  // sub rd, x0, rs
-        {"seqz", {InstructionInfo::Type::I_TYPE, 0b011, 0, 2}},         // sltiu rd, rs,1
-        {"snez", {InstructionInfo::Type::R_TYPE, 0b011, 0b0000000, 2}}, // sltu rd, x0, rs
-        {"sltz", {InstructionInfo::Type::R_TYPE, 0b010, 0b0000000, 2}}, // slt rd, rs, x0
-        {"sgtz", {InstructionInfo::Type::R_TYPE, 0b010, 0b0000000, 2}}, // slt rd, x0, rs
-        {"j", {InstructionInfo::Type::J_TYPE, 0, 0, 1}},                // jal x0, label
-        {"jr", {InstructionInfo::Type::I_TYPE, 0b000, 0, 1}},           // jalr x0, rs,0
-        {"ret", {InstructionInfo::Type::I_TYPE, 0b000, 0, 0}},          // jalr x0, x1, 0
-        {"call", {InstructionInfo::Type::J_TYPE, 0, 0, 1}},             // jal to symbol (commonly auipc+j)
-    };
+        // Pseudo-instructions
+        {"la", {InstructionInfo::Type::PSEUDO, 0, 0, 2}},
+        {"j", {InstructionInfo::Type::PSEUDO, 0, 0, 2}}};
 
     const std::unordered_map<std::string_view, uint8_t> InstructionSet::kRegisters = {
         // Numeric names
@@ -196,9 +187,10 @@ namespace cforge
     uint8_t InstructionSet::GetRegisterCode(std::string_view reg)
     {
         auto it = kRegisters.find(reg);
+        std::cout << "Looking for register: \"" << reg << "\"\n";
         if (it == kRegisters.end())
         {
-            throw Error("Invalid register: " + std::string(reg));
+            throw std::runtime_error("Invalid register: " + std::string(reg));
         }
         return it->second;
     }
@@ -259,16 +251,36 @@ namespace cforge
     {
         const InstructionInfo *info = GetInstructionInfo(mnemonic);
 
+        /**
+         * @brief Unique instruction ID for relocations.
+         * @details This is a really sketchy way to handle instruction IDs, by appending 1 for each
+         * 4-byte instruction compiled, which (should) make Linking possible.
+         */
+        static size_t instruction_id = 0;
+
         // Check type
         try
         {
             switch (info->opcode)
             {
             case InstructionInfo::Type::R_TYPE:
+                ++instruction_id;
                 return CompileRTypeInstruction(info, operands);
             case InstructionInfo::Type::I_TYPE:
+                ++instruction_id;
                 return CompileITypeInstruction(info, operands);
-
+            // case InstructionInfo::Type::LOAD:
+            //     ++instruction_id;
+            //     return CompileLoadStoreInstruction(info, operands);
+            // case InstructionInfo::Type::STORE:
+            //     ++instruction_id;
+            //     return CompileLoadStoreInstruction(info, operands);
+            case InstructionInfo::Type::J_TYPE:
+                ++instruction_id;
+                return CompileJTypeInstruction(mnemonic, info, operands);
+            case InstructionInfo::Type::PSEUDO:
+                // `instruction_id` incremented by CompilePseudoInstruction
+                return CompilePseudoInstruction(instruction_id, mnemonic, info, operands);
             default:
                 return CompiledInstruction{};
             }
@@ -351,6 +363,107 @@ namespace cforge
         instruction.bytes[1] = (inst >> 8) & 0xFF;
         instruction.bytes[2] = (inst >> 16) & 0xFF;
         instruction.bytes[3] = (inst >> 24) & 0xFF;
+
+        return instruction;
+    }
+
+    // FIX: Doesn't work for jalr
+    CompiledInstruction InstructionSet::CompileJTypeInstruction(
+        const std::string_view mnemonic,
+        const InstructionInfo *info,
+        const std::vector<std::string_view> &operands)
+    {
+        if (mnemonic == "jal")
+        {
+            // Expect 2 operands: rd and label
+            if (operands.size() != 2)
+            {
+                throw std::runtime_error("J-type instruction requires exactly 2 operands: ");
+            }
+
+            // Convert register operand to code
+            uint8_t rd = GetRegisterCode(operands[0]);
+            std::string label = std::string(operands[1]);
+
+            // Create the instruction bytes
+            CompiledInstruction instruction;
+            instruction.bytes.resize(4);
+            uint32_t inst =
+                (static_cast<uint32_t>(rd) << 7) |     // rd
+                (static_cast<uint32_t>(info->opcode)); // opcode
+
+            instruction.bytes[0] = inst & 0xFF;
+            instruction.bytes[1] = (inst >> 8) & 0xFF;
+            instruction.bytes[2] = (inst >> 16) & 0xFF;
+            instruction.bytes[3] = (inst >> 24) & 0xFF;
+
+            // Add relocation entry for the label
+            instruction.relocations.push_back({
+                RelocationEntry::Type::R_RISC_V_JAL,
+                ".text", // Section must be text TODO: make sure this is checked before this point
+                0,       // Instruction ID will be set later
+                label,
+            });
+
+            return instruction;
+        }
+        else if (mnemonic == "jalr")
+        {
+            throw std::runtime_error("jalr is not implemented yet");
+        }
+        else
+        {
+            throw std::runtime_error("Invalid J-type mnemonic: " + std::string(mnemonic));
+        }
+    }
+
+    CompiledInstruction InstructionSet::CompilePseudoInstruction(
+        size_t &id,
+        const std::string_view mnemonic,
+        const InstructionInfo *info,
+        const std::vector<std::string_view> &operands)
+    {
+        CompiledInstruction instruction;
+        // TODO: Don't assume all pseudo-instructions are 4 bytes
+
+        if (mnemonic == "la")
+        {
+            // Load address pseudo-instruction
+            if (operands.size() != 2)
+            {
+                throw std::runtime_error("la pseudo-instruction requires exactly 2 operands: ");
+            }
+
+            std::string_view reg = operands[0];
+
+            uint8_t rd = GetRegisterCode(reg);
+
+            // Get the address (label) to load
+            std::string label = std::string(operands[1]);
+
+            // Compile as addi replacing label with 0
+            instruction = CompileITypeInstruction(GetInstructionInfo("addi"), {reg, "zero", "0"});
+
+            // Add a relocation entry for the label
+            instruction.relocations.push_back({
+                RelocationEntry::Type::R_RISC_V_LO12_I,
+                ".text", // Section must be text TODO: make sure this is checked before this point
+                id,      // Instruction ID
+                label,
+            });
+
+            // Increment the instruction ID
+            ++id;
+        }
+        else if (mnemonic == "j")
+        {
+            instruction = CompileJTypeInstruction("jal", GetInstructionInfo("jal"), std::vector<std::string_view>{"x0", operands[0]});
+            ++id; // Don't forget to increment the instruction ID for relocations
+        }
+        else
+        {
+            throw std::runtime_error("Unsupported pseudo-instruction");
+        }
 
         return instruction;
     }

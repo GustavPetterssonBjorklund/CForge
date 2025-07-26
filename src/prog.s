@@ -5,6 +5,10 @@ _start:
     addi x2, zero, 0x2  # Set x2 to 2
     add x3, x1, x2      # Add x1 and x2
 
+    # Load a byte from memory
+    la x4, bytes        # Load address of bytes
+    lb x5, 0(x4)        # Load byte at offset 0 into
+
     j _hang
 
 _hang:

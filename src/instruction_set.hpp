@@ -23,7 +23,10 @@ namespace cforge
             BRANCH = 0x63,
             U_TYPE = 0x37,
             J_TYPE = 0x6F,
-            NONE = 0x00,
+
+            // Impossible types [0x80:0xFF] (> 7 bit)
+            NONE = 0xFF,
+            PSEUDO = 0xFE,
         };
 
         Type opcode;
@@ -38,12 +41,16 @@ namespace cforge
     {
         enum class Type
         {
-            ABSOLUTE, // primarily for labels
+            R_RISC_V_HI20,   // High 20-bit for "lui", "auipc"
+            R_RISC_V_LO12_I, // Low 12-bit for "addi"
+            R_RISC_V_LO12_S, // Low 12-bit for "sw", "sh", "sb"
+            R_RISC_V_JAL,    // JAL label relocation
         } type;
 
         std::string section; // Section name
-        size_t offset;       // Offset in the section
-        std::string symbol;  // Symbol to resolve
+        size_t instruction_id;
+
+        std::string symbol; // Symbol to resolve
     };
 
     struct CompiledInstruction
@@ -152,6 +159,12 @@ namespace cforge
             const InstructionInfo *info,
             const std::vector<std::string_view> &operands);
         static CompiledInstruction CompileJTypeInstruction(
+            const std::string_view mnemonic,
+            const InstructionInfo *info,
+            const std::vector<std::string_view> &operands);
+        static CompiledInstruction CompilePseudoInstruction(
+            size_t &id,
+            const std::string_view mnemonic,
             const InstructionInfo *info,
             const std::vector<std::string_view> &operands);
     };
