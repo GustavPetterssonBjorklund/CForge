@@ -61,11 +61,12 @@ namespace cforge
             }
 
             // Write the modified instruction back to the output
+            auto output_offset = absolute_section_map_.at(reloc.section) + offset;
             for (size_t i = 0; i < 4; ++i)
             {
-                if (offset + i < output.size())
+                if (output_offset + i < output.size())
                 {
-                    output[offset + i] = instruction_copy[i];
+                    output[output_offset + i] = instruction_copy[i];
                 }
                 else
                 {
@@ -150,7 +151,7 @@ namespace cforge
             }
             size_t symbol_address = symbol_it->second;
 
-            size_t instruction_address = reloc.instruction_id * 4;
+            size_t instruction_address = reloc.instruction_id * 4 + absolute_section_map_.at(reloc.section);
 
             size_t offset = symbol_address - instruction_address;
 
