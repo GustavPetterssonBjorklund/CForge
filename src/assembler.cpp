@@ -304,7 +304,7 @@ namespace cforge
     {
         auto ptr = MakeListTokenStmt<DirectiveStmt>();
         auto *d = static_cast<DirectiveStmt *>(ptr.get());
-		std::string directive_name(d->name);
+        std::string directive_name(d->name);
         if (!InstructionSet::IsValidDirective(d->name))
         {
             throw Error(directive_name, d->line, "Invalid directive");
@@ -323,10 +323,97 @@ namespace cforge
             auto label = d->args[0];
             global_symbols_.insert(std::string(label));
         }
-        // TODO:: Implement
         else if (directive_name == ".align")
         {
-            throw Error(directive_name, d->line, "Directive not implemented yet");
+            std::cout << "Aligning section with .align directive\n";
+            // Expect one or two arguments
+            if (d->args.size() == 1)
+            {
+                try
+                {
+                    // Get alignment value
+                    int alignment_n = std::stoi(d->args[0]);
+
+                    if (alignment_n <= 0 || alignment_n >= 32)
+                    {
+                        throw Error(directive_name, d->line, "Alignment must be a positive integer less than 32");
+                    }
+
+                    // Ensure we're in a section
+                    if (current_section_.empty())
+                    {
+                        throw Error("Align directive used outside of a section", d->line);
+                    }
+
+                    // Calculate required padding
+                    size_t current_size = section_size_map_[current_section_];
+                    size_t alignment = 1 << alignment_n; // 2^alignment_n
+                    size_t padding = (alignment - (current_size % alignment)) % alignment;
+
+                    std::cout << "Aligning section '" << current_section_ << "' by " << padding << " bytes\n";
+                    // Update section size and insert padding
+                    section_size_map_[current_section_] += padding;
+                    section_data_map_[current_section_].insert(
+                        section_data_map_[current_section_].end(),
+                        padding, 0); // Fill with zeros
+                }
+                catch (const std::exception &e)
+                {
+                    throw Error(directive_name, d->line, e.what());
+                }
+            }
+            else if (d->args.size() == 2)
+            {
+                try
+                {
+                    // Get alignment value
+                    int alignment_n = std::stoi(d->args[0]);
+
+                    // Get fill value, default to 0
+                    uint8_t fill_value = 0;
+                    if (!d->args[1].empty())
+                    {
+                        fill_value = static_cast<uint8_t>(std::stoi(d->args[1]));
+                    }
+
+                    // Validate alignment_n
+                    if (alignment_n <= 0 || alignment_n >= 32)
+                    {
+                        throw Error(directive_name, d->line, "Alignment must be a positive integer less than 32");
+                    }
+
+                    // Validate fill value
+                    if (fill_value > 255 || fill_value < 0)
+                    {
+                        throw Error(directive_name, d->line, "Fill value must be in range [0, 255]");
+                    }
+
+                    // Ensure we're in a section
+                    if (current_section_.empty())
+                    {
+                        throw Error("Align directive used outside of a section", d->line);
+                    }
+
+                    // Calculate required padding
+                    size_t current_size = section_size_map_[current_section_];
+                    size_t alignment = 1 << alignment_n; // 2^alignment_n
+                    size_t padding = (alignment - (current_size % alignment)) % alignment;
+
+                    // Update section size and insert padding
+                    section_size_map_[current_section_] += padding;
+                    section_data_map_[current_section_].insert(
+                        section_data_map_[current_section_].end(),
+                        padding, fill_value); // Fill with specified value
+                }
+                catch (const std::exception &e)
+                {
+                    throw Error(directive_name, d->line, e.what());
+                }
+            }
+            else
+            {
+                throw Error(directive_name, d->line, ".align directive must be in the form \".align <N> [, <fill>]\"");
+            }
         }
         // Check for .section directive
         else if (directive_name == ".section")
@@ -335,7 +422,7 @@ namespace cforge
             {
                 throw Error(directive_name, d->line, "Expected exactly one argument for .section directive");
             }
-			std::string section_name = d->args[0];
+            std::string section_name = d->args[0];
 
             // Switch to the next section while safely initializing `section_map_`
             if (section_size_map_.find(section_name) == section_size_map_.end())
@@ -555,14 +642,6 @@ namespace cforge
         ir.section_data = std::move(section_data_map_);     // Move section data to IR
         ir.symbol_map = std::move(symbol_map_);             // Move symbol map to IR
         ir.relocations = std::move(relocations_);           // Move relocations to IR
-
-        // Get dir of src
-        std::filesystem::path src_dir = std::filesystem::path(__FILE__).parent_path();
-        std::filesystem::path json_file = src_dir / "../IR_BUILD/output.json";
-
-        // Write IR to file
-        IrParser::WriteToFile(ir, json_file);
-
         return ir;
     }
 
